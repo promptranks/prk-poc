@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import Timer from '../components/Timer'
 import KBA from './KBA'
 import type { KBAResult } from './KBA'
+import PPA from './PPA'
 
 interface AssessmentData {
   assessment_id: string
@@ -178,6 +179,10 @@ export default function Assessment() {
 
   const handleKBAComplete = useCallback((result: KBAResult) => {
     setKbaResult(result)
+    setPhase('ppa')
+  }, [])
+
+  const handlePPAComplete = useCallback(() => {
     setPhase('results')
   }, [])
 
@@ -231,6 +236,14 @@ export default function Assessment() {
           />
         )}
 
+        {phase === 'ppa' && (
+          <PPA
+            assessmentId={data.assessment_id}
+            mode={data.mode}
+            onComplete={handlePPAComplete}
+          />
+        )}
+
         {phase === 'results' && kbaResult && (
           <div style={styles.resultCard}>
             <div style={{ fontSize: '0.9rem', color: '#008f11', marginBottom: '0.5rem' }}>
@@ -254,7 +267,7 @@ export default function Assessment() {
               ))}
             </div>
             <div style={{ marginTop: '2rem', color: '#008f11', fontSize: '0.85rem' }}>
-              PPA phase coming in Sprint 2...
+              Scoring + Results coming in Sprint 3...
             </div>
           </div>
         )}

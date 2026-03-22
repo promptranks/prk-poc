@@ -2,21 +2,33 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import get_db
 from app.models.assessment import Assessment, AssessmentMode, AssessmentStatus
-from app.models.question import Question
+from app.models.question import Question, Task
 from app.services.kba_engine import (
     check_timer_expired,
     expire_assessment,
     score_kba,
     select_questions,
+)
+from app.services.ppa_engine import (
+    compute_ppa_score,
+    execute_task_prompt,
+    get_attempt_count,
+    get_max_attempts,
+    get_task_brief,
+    judge_task_output,
+    select_tasks,
+    store_attempt,
 )
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
@@ -67,6 +79,39 @@ class SubmitKBAResponse(BaseModel):
     total_correct: int
     total_questions: int
     pillar_scores: dict[str, PillarScoreOut]
+
+
+class PPAExecuteRequest(BaseModel):
+    task_id: str
+    prompt: str
+
+
+class PPAExecuteResponse(BaseModel):
+    task_id: str
+    attempt_number: int
+    output: str
+    attempts_used: int
+    max_attempts: int
+
+
+class PPASubmitBestRequest(BaseModel):
+    task_id: str
+    attempt_index: int  # 0-based index of the best attempt
+
+
+class DimensionScore(BaseModel):
+    score: int
+    rationale: str
+
+
+class PPASubmitBestResponse(BaseModel):
+    task_id: str
+    ppa_score: float
+    dimensions: dict[str, DimensionScore]
+
+
+class PPATasksResponse(BaseModel):
+    tasks: list[dict[str, Any]]
 
 
 # --- Endpoints ---
@@ -193,10 +238,234 @@ async def submit_kba(
     )
 
 
-@router.post("/{assessment_id}/ppa/execute")
-async def execute_ppa(assessment_id: str):
-    """Execute a prompt in PPA sandbox."""
-    return {"message": "not implemented"}
+# --- Helper to load + validate assessment ---
+
+
+async def _load_assessment(db: AsyncSession, assessment_id: str) -> Assessment:
+    """Load an in-progress, non-expired assessment or raise HTTPException."""
+    try:
+        aid = uuid.UUID(assessment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid assessment ID")
+
+    result = await db.execute(select(Assessment).where(Assessment.id == aid))
+    assessment = result.scalar_one_or_none()
+
+    if assessment is None:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if assessment.status == AssessmentStatus.expired:
+        raise HTTPException(status_code=400, detail="Assessment has expired")
+    if assessment.status == AssessmentStatus.voided:
+        raise HTTPException(status_code=400, detail="Assessment has been voided")
+    if assessment.status == AssessmentStatus.completed:
+        raise HTTPException(status_code=400, detail="Assessment already completed")
+    if check_timer_expired(assessment):
+        await expire_assessment(db, assessment)
+        raise HTTPException(status_code=400, detail="Assessment has expired")
+
+    return assessment
+
+
+# --- PPA Endpoints ---
+
+
+@router.get("/{assessment_id}/ppa/tasks", response_model=PPATasksResponse)
+async def get_ppa_tasks(
+    assessment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get PPA tasks for the assessment. Selects tasks on first call, returns cached on subsequent calls."""
+    assessment = await _load_assessment(db, assessment_id)
+
+    # Check KBA is done
+    if assessment.kba_score is None:
+        raise HTTPException(status_code=400, detail="KBA must be completed before PPA")
+
+    # Check if tasks already assigned
+    ppa = assessment.ppa_responses or {}
+    task_ids_str = ppa.get("task_ids", [])
+
+    if not task_ids_str:
+        # Select tasks
+        tasks = await select_tasks(db, assessment.mode.value)
+        if not tasks:
+            raise HTTPException(status_code=500, detail="No PPA tasks available. Run the seed script.")
+
+        task_ids_str = [str(t.id) for t in tasks]
+        assessment.ppa_responses = {
+            "task_ids": task_ids_str,
+            "tasks": {},
+        }
+        flag_modified(assessment, "ppa_responses")
+        await db.commit()
+    else:
+        # Load tasks from DB
+        task_ids = [uuid.UUID(tid) for tid in task_ids_str]
+        result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
+        tasks = list(result.scalars().all())
+
+    # Return briefs (without scoring rubric)
+    briefs = [get_task_brief(t) for t in tasks]
+    return PPATasksResponse(tasks=briefs)
+
+
+@router.post("/{assessment_id}/ppa/execute", response_model=PPAExecuteResponse)
+async def execute_ppa(
+    assessment_id: str,
+    body: PPAExecuteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Execute a user prompt against a PPA task. Returns LLM output (not judge scores)."""
+    assessment = await _load_assessment(db, assessment_id)
+
+    if assessment.kba_score is None:
+        raise HTTPException(status_code=400, detail="KBA must be completed before PPA")
+
+    # Validate task is assigned to this assessment
+    ppa = assessment.ppa_responses or {}
+    task_ids_str = ppa.get("task_ids", [])
+    if body.task_id not in task_ids_str:
+        raise HTTPException(status_code=400, detail="Task not assigned to this assessment")
+
+    # Load task from DB
+    try:
+        task_uuid = uuid.UUID(body.task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID")
+
+    result = await db.execute(select(Task).where(Task.id == task_uuid))
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Check max attempts
+    max_att = get_max_attempts(task, assessment.mode.value)
+    current_attempts = get_attempt_count(ppa, body.task_id)
+
+    if current_attempts >= max_att:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum attempts ({max_att}) reached for this task",
+        )
+
+    # Execute prompt via LLM
+    try:
+        output = await execute_task_prompt(body.prompt, task)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM execution failed: {str(e)}")
+
+    # Store attempt
+    attempt_number = current_attempts + 1
+    updated_ppa = store_attempt(
+        ppa_responses=ppa,
+        task_id=body.task_id,
+        prompt=body.prompt,
+        output=output,
+        attempt_number=attempt_number,
+    )
+    assessment.ppa_responses = updated_ppa
+    flag_modified(assessment, "ppa_responses")
+    await db.commit()
+
+    return PPAExecuteResponse(
+        task_id=body.task_id,
+        attempt_number=attempt_number,
+        output=output,
+        attempts_used=attempt_number,
+        max_attempts=max_att,
+    )
+
+
+@router.post("/{assessment_id}/ppa/submit-best", response_model=PPASubmitBestResponse)
+async def submit_best_attempt(
+    assessment_id: str,
+    body: PPASubmitBestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit best attempt for judging. Returns 5-dimension scores."""
+    assessment = await _load_assessment(db, assessment_id)
+
+    ppa = assessment.ppa_responses or {}
+    task_ids_str = ppa.get("task_ids", [])
+    if body.task_id not in task_ids_str:
+        raise HTTPException(status_code=400, detail="Task not assigned to this assessment")
+
+    # Get task data
+    task_data = ppa.get("tasks", {}).get(body.task_id)
+    if not task_data or not task_data.get("attempts"):
+        raise HTTPException(status_code=400, detail="No attempts found for this task")
+
+    attempts = task_data["attempts"]
+    if body.attempt_index < 0 or body.attempt_index >= len(attempts):
+        raise HTTPException(status_code=400, detail="Invalid attempt index")
+
+    # Check not already judged
+    if task_data.get("judge_result") is not None:
+        raise HTTPException(status_code=400, detail="This task has already been judged")
+
+    # Load task from DB
+    try:
+        task_uuid = uuid.UUID(body.task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID")
+
+    result = await db.execute(select(Task).where(Task.id == task_uuid))
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Get the selected attempt
+    best_attempt = attempts[body.attempt_index]
+
+    # Judge the output
+    try:
+        judge_result = await judge_task_output(
+            task=task,
+            user_prompt=best_attempt["prompt"],
+            llm_output=best_attempt["output"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM judging failed: {str(e)}")
+
+    # Compute weighted score
+    ppa_score = compute_ppa_score(judge_result, task.scoring_rubric)
+
+    # Store judge result
+    task_data["selected_best"] = body.attempt_index
+    task_data["judge_result"] = judge_result
+    task_data["ppa_score"] = ppa_score
+    ppa["tasks"][body.task_id] = task_data
+
+    # Check if all tasks are judged — compute overall PPA score
+    all_judged = all(
+        ppa.get("tasks", {}).get(tid, {}).get("judge_result") is not None
+        for tid in task_ids_str
+    )
+    if all_judged:
+        # Average PPA scores across all tasks
+        task_scores = [
+            ppa["tasks"][tid]["ppa_score"]
+            for tid in task_ids_str
+            if "ppa_score" in ppa["tasks"].get(tid, {})
+        ]
+        if task_scores:
+            assessment.ppa_score = round(sum(task_scores) / len(task_scores), 1)
+
+    assessment.ppa_responses = ppa
+    flag_modified(assessment, "ppa_responses")
+    await db.commit()
+
+    return PPASubmitBestResponse(
+        task_id=body.task_id,
+        ppa_score=ppa_score,
+        dimensions={
+            dim: DimensionScore(
+                score=data["score"],
+                rationale=data.get("rationale", ""),
+            )
+            for dim, data in judge_result.items()
+        },
+    )
 
 
 @router.post("/{assessment_id}/psv/submit")
