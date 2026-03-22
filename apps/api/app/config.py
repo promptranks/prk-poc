@@ -15,11 +15,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
-    # LLM
-    anthropic_api_key: str = ""
-    llm_base_url: str | None = None  # Proxy URL (e.g., https://terminal.pub)
-    llm_executor_model: str = "claude-sonnet-4-6"
-    llm_judge_model: str = "claude-opus-4-6"
+    # LLM (provider set via model prefix: openai/gpt-4o, anthropic/claude-sonnet-4-6, etc.)
+    llm_executor_model: str = "openai/gpt-4o"
+    llm_judge_model: str = "openai/gpt-4o"
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.1
 

@@ -15,7 +15,8 @@ cp .env.example .env
 ```
 
 Edit `.env` and set:
-- `ANTHROPIC_API_KEY` — your Claude API key
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — API key for your chosen LLM provider
+- `LLM_EXECUTOR_MODEL` / `LLM_JUDGE_MODEL` — model with provider prefix (e.g., `openai/gpt-4o`, `anthropic/claude-sonnet-4-6`)
 - `POSTGRES_PASSWORD` — change from default
 - `SECRET_KEY` — generate with `openssl rand -hex 32`
 
@@ -40,12 +41,12 @@ Open `http://localhost:3000`.
 See [.env.example](../.env.example) for all available configuration options.
 
 ### Required
-- `ANTHROPIC_API_KEY` — Claude API key for PPA execution and judging
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — LLM provider API key (set whichever you use)
 - `SECRET_KEY` — JWT signing key
 
 ### Optional
-- `LLM_EXECUTOR_MODEL` — Model for running user prompts (default: `claude-sonnet-4-6`)
-- `LLM_JUDGE_MODEL` — Model for scoring outputs (default: `claude-opus-4-6`)
+- `LLM_EXECUTOR_MODEL` — Model for running user prompts (default: `openai/gpt-4o`)
+- `LLM_JUDGE_MODEL` — Model for scoring outputs (default: `openai/gpt-4o`)
 - `QUICK_ASSESSMENT_TIME_LIMIT` — Quick mode timer in seconds (default: 900)
 
 ## Data Persistence
@@ -69,6 +70,6 @@ docker compose exec api python scripts/seed-questions.py
 
 **API won't start**: Check `docker compose logs api` — usually a missing env var.
 
-**LLM calls fail**: Verify your `ANTHROPIC_API_KEY` is valid and has credits.
+**LLM calls fail**: Verify your API key is valid and has credits. Check model name includes provider prefix (e.g., `openai/gpt-4o`).
 
 **Database errors**: Run `docker compose down -v` to reset (destroys data).

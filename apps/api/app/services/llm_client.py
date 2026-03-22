@@ -1,49 +1,40 @@
-"""LLM Client: Anthropic SDK wrapper for prompt execution and judging."""
+"""LLM Client: Multi-provider support via LiteLLM.
+
+Supports any provider (OpenAI, Anthropic, Azure, Ollama, Bedrock, etc.)
+by setting the model prefix in LLM_EXECUTOR_MODEL / LLM_JUDGE_MODEL.
+
+Examples:
+  openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama/llama3, azure/gpt-4o
+"""
 
 import json
 import logging
 from typing import Any
 
-import anthropic
+import litellm
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Lazy-initialized client (avoids issues when API key is empty in tests)
-_client: anthropic.AsyncAnthropic | None = None
-
-
-def _get_client() -> anthropic.AsyncAnthropic:
-    """Get or create the async Anthropic client."""
-    global _client
-    if _client is None:
-        kwargs: dict[str, Any] = {"api_key": settings.anthropic_api_key}
-        if settings.llm_base_url:
-            kwargs["base_url"] = settings.llm_base_url
-        _client = anthropic.AsyncAnthropic(**kwargs)
-    return _client
+# Suppress litellm's verbose logging
+litellm.suppress_debug_info = True
 
 
 async def execute_prompt(prompt: str, task_input: str, model: str | None = None) -> str:
-    """Execute a user's prompt against task input data via Claude.
+    """Execute a user's prompt against task input data via LLM.
 
     Args:
         prompt: The user's prompt text.
         task_input: The task's input data to process.
-        model: Model to use. Defaults to settings.llm_executor_model.
+        model: Model to use (e.g., "openai/gpt-4o"). Defaults to settings.llm_executor_model.
 
     Returns:
         The LLM's text response.
-
-    Raises:
-        anthropic.APIError: On API failures.
-        TimeoutError: If request exceeds timeout.
     """
-    client = _get_client()
     target_model = model or settings.llm_executor_model
 
-    message = await client.messages.create(
+    response = await litellm.acompletion(
         model=target_model,
         max_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature,
@@ -54,7 +45,7 @@ async def execute_prompt(prompt: str, task_input: str, model: str | None = None)
             }
         ],
     )
-    return message.content[0].text  # type: ignore[union-attr]
+    return response.choices[0].message.content  # type: ignore[union-attr]
 
 
 async def judge_output(
@@ -66,25 +57,11 @@ async def judge_output(
     success_criteria: list[str],
     model: str | None = None,
 ) -> dict[str, Any]:
-    """Judge an LLM output using Claude as evaluator.
+    """Judge an LLM output using an LLM as evaluator.
 
     Returns structured JSON with 5-dimension scores (0-100 each):
     accuracy, completeness, prompt_efficiency, output_quality, creativity.
-
-    Args:
-        user_prompt: The prompt the user wrote.
-        task_brief: The task description shown to the user.
-        task_input: The input data provided to the LLM.
-        llm_output: The output produced by execute_prompt.
-        scoring_rubric: Dict with dimension weights and descriptions.
-        success_criteria: List of criteria the output should meet.
-        model: Model to use. Defaults to settings.llm_judge_model.
-
-    Returns:
-        Dict with keys: accuracy, completeness, prompt_efficiency,
-        output_quality, creativity (each 0-100), plus rationale per dimension.
     """
-    client = _get_client()
     target_model = model or settings.llm_judge_model
 
     rubric_text = "\n".join(
@@ -131,7 +108,7 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "creativity": {{"score": <0-100>, "rationale": "<brief explanation>"}}
 }}"""
 
-    message = await client.messages.create(
+    response = await litellm.acompletion(
         model=target_model,
         max_tokens=2048,
         temperature=0.0,
@@ -143,11 +120,10 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
         ],
     )
 
-    raw_text = message.content[0].text.strip()  # type: ignore[union-attr]
+    raw_text = (response.choices[0].message.content or "").strip()  # type: ignore[union-attr]
 
     # Parse JSON — handle possible markdown code fences
     if raw_text.startswith("```"):
-        # Strip ```json ... ``` wrapper
         lines = raw_text.split("\n")
         json_lines = []
         in_block = False
@@ -165,7 +141,6 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
         scores = json.loads(raw_text)
     except json.JSONDecodeError:
         logger.error("Failed to parse judge response: %s", raw_text[:500])
-        # Return fallback scores
         scores = {
             dim: {"score": 50, "rationale": "Judge response could not be parsed"}
             for dim in ["accuracy", "completeness", "prompt_efficiency", "output_quality", "creativity"]
