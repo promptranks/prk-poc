@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, String, Integer, Float, DateTime, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,4 +20,4 @@ class Badge(Base):
     pillar_scores = Column(JSON, nullable=False)  # {"P": 85, "E": 78, ...}
     badge_svg = Column(String, nullable=True)  # rendered SVG content
     verification_url = Column(String, nullable=True)
-    issued_at = Column(DateTime, default=datetime.utcnow)
+    issued_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

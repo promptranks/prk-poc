@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://prk.promptranks.org",
+    ]
 
     # LLM (provider set via model prefix: openai/gpt-4o, anthropic/claude-sonnet-4-6, etc.)
     llm_executor_model: str = "openai/gpt-4o"
