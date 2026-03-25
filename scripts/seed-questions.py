@@ -45,6 +45,8 @@ def load_questions(content_dir: str) -> list[dict]:
                 "correct_answer": q["correct"],
                 "explanation": q.get("explanation", ""),
                 "tags": q.get("tags", []),
+                "content_tier": "core",
+                "source": "seed",
             })
     return questions
 
@@ -70,6 +72,8 @@ def load_tasks(content_dir: str) -> list[dict]:
             "max_attempts": t.get("max_attempts", 3),
             "time_limit_seconds": t.get("time_limit_seconds", 480),
             "is_quick": t.get("is_quick", False),
+            "content_tier": "core",
+            "source": "seed",
         })
     return tasks
 

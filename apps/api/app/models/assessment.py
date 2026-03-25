@@ -29,6 +29,8 @@ class Assessment(Base):
     status: Column[AssessmentStatus] = Column(Enum(AssessmentStatus), default=AssessmentStatus.in_progress)
     industry = Column(String, nullable=True)
     role = Column(String, nullable=True)
+    industry_id = Column(UUID(as_uuid=True), ForeignKey("industries.id"), nullable=True)
+    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=True)
 
     # KBA
     kba_score = Column(Float, nullable=True)

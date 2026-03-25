@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Integer, DateTime, Boolean, JSON
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.models.user import Base
@@ -20,9 +20,14 @@ class Question(Base):
     correct_answer = Column(JSON, nullable=False)  # index or list of indices
     explanation = Column(String, nullable=True)
     tags = Column(JSON, nullable=True)
+    content_tier = Column(String, nullable=False, default="core", index=True)  # core, premium, enterprise, local
+    content_pack_id = Column(UUID(as_uuid=True), ForeignKey("content_packs.id"), nullable=True)
+    source = Column(String, nullable=False, default="seed")  # seed, registry, manual, import
+    usage_count = Column(Integer, default=0)
+    correct_count = Column(Integer, default=0)
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class Task(Base):
@@ -41,6 +46,11 @@ class Task(Base):
     max_attempts = Column(Integer, default=3)
     time_limit_seconds = Column(Integer, default=480)
     is_quick = Column(Boolean, default=False)  # eligible for Quick Assessment
+    content_tier = Column(String, nullable=False, default="core", index=True)  # core, premium, enterprise, local
+    content_pack_id = Column(UUID(as_uuid=True), ForeignKey("content_packs.id"), nullable=True)
+    source = Column(String, nullable=False, default="seed")  # seed, registry, manual, import
+    usage_count = Column(Integer, default=0)
+    avg_score = Column(Float, nullable=True)
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

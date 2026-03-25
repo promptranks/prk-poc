@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.assessment import Assessment
 from app.models.badge import Badge
 from app.models.user import User
@@ -87,6 +88,11 @@ def _generate_radar_svg(pillar_scores: dict[str, Any], cx: float, cy: float, max
     return "\n    ".join(parts)
 
 
+def _get_badge_domain() -> str:
+    """Get the domain for badge verification URLs and branding."""
+    return settings.deployment_domain or "promptranks.org"
+
+
 def generate_badge_svg(
     level: int,
     level_name: str,
@@ -100,6 +106,9 @@ def generate_badge_svg(
     color = LEVEL_COLORS.get(level, "#00ff41")
     mode_label = "Certified" if mode == "full" else "Estimated"
     date_str = issued_at.strftime("%Y-%m-%d")
+    domain = _get_badge_domain()
+    verification_url = f"https://{domain}/badges/verify/{badge_id}"
+    domain_label = domain
 
     # Radar chart centered at (200, 175), radius 55
     radar = _generate_radar_svg(pillar_scores, 200, 175, 55)
@@ -135,8 +144,8 @@ def generate_badge_svg(
   <!-- Footer -->
   <line x1="20" y1="260" x2="380" y2="260" stroke="rgba(0,255,65,0.15)" stroke-width="0.5"/>
   <text x="200" y="278" text-anchor="middle" fill="#008f11" font-size="7" font-family="monospace">Issued: {date_str}</text>
-  <text x="200" y="292" text-anchor="middle" fill="#008f11" font-size="6" font-family="monospace">Verify: /badges/verify/{badge_id}</text>
-  <text x="200" y="308" text-anchor="middle" fill="rgba(0,255,65,0.3)" font-size="6" font-family="monospace">promptranks.org</text>
+  <text x="200" y="292" text-anchor="middle" fill="#008f11" font-size="6" font-family="monospace">Verify: {verification_url}</text>
+  <text x="200" y="308" text-anchor="middle" fill="rgba(0,255,65,0.3)" font-size="6" font-family="monospace">{domain_label}</text>
 </svg>'''
 
     return svg
@@ -168,6 +177,9 @@ async def create_badge(
         badge_id=badge_id_str,
     )
 
+    domain = _get_badge_domain()
+    verification_url = f"https://{domain}/badges/verify/{badge_id_str}"
+
     badge = Badge(
         id=badge_id,
         user_id=user.id,
@@ -178,7 +190,8 @@ async def create_badge(
         final_score=final_score,
         pillar_scores=pillar_scores,
         badge_svg=badge_svg,
-        verification_url=f"/badges/verify/{badge_id_str}",
+        verification_url=verification_url,
+        issuer_domain=domain,
         issued_at=now,
     )
     db.add(badge)

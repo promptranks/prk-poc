@@ -20,4 +20,5 @@ class Badge(Base):
     pillar_scores = Column(JSON, nullable=False)  # {"P": 85, "E": 78, ...}
     badge_svg = Column(String, nullable=True)  # rendered SVG content
     verification_url = Column(String, nullable=True)
+    issuer_domain = Column(String, nullable=True)
     issued_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
