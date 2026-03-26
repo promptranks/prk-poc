@@ -1,10 +1,36 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, JSON, ForeignKey, Table
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.models.user import Base
+
+# Many-to-many join tables
+question_industries = Table(
+    "question_industries", Base.metadata,
+    Column("question_id", UUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True),
+    Column("industry_id", UUID(as_uuid=True), ForeignKey("industries.id", ondelete="CASCADE"), primary_key=True),
+)
+
+question_roles = Table(
+    "question_roles", Base.metadata,
+    Column("question_id", UUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+)
+
+task_industries = Table(
+    "task_industries", Base.metadata,
+    Column("task_id", UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("industry_id", UUID(as_uuid=True), ForeignKey("industries.id", ondelete="CASCADE"), primary_key=True),
+)
+
+task_roles = Table(
+    "task_roles", Base.metadata,
+    Column("task_id", UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Question(Base):
@@ -28,6 +54,9 @@ class Question(Base):
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    industries = relationship("Industry", secondary=question_industries, lazy="selectin")
+    roles = relationship("Role", secondary=question_roles, lazy="selectin")
 
 
 class Task(Base):
@@ -54,3 +83,6 @@ class Task(Base):
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    industries = relationship("Industry", secondary=task_industries, lazy="selectin")
+    roles = relationship("Role", secondary=task_roles, lazy="selectin")

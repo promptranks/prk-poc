@@ -14,6 +14,8 @@
 | 3 | Scoring + Results + Anti-Cheat | Final score, level, results page, tab-lock | HIGH | Sprint 2 | Completed |
 | 4 | Auth + Badge Claim | Register at claim time, badge generation, verification | HIGH | Sprint 3 | Completed |
 | 5 | Polish + Release v0.1.0 | UX polish, error handling, rate limiting, release | MEDIUM | Sprint 4 | Pending |
+| 6 | Content Registry Sync Client | Build registry client, license validation on startup, periodic content sync | HIGH | Sprint 5 | Pending |
+| 7 | Content Tier Filtering | Filter assessment questions/tasks by user subscription tier and content_tier | HIGH | Sprint 6 | Pending |
 
 ---
 
