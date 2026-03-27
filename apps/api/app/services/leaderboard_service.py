@@ -213,14 +213,14 @@ async def get_user_summary(
 async def rebuild_all(db: AsyncSession, redis: aioredis.Redis) -> dict[str, int]:
     """Rebuild all leaderboard sorted sets from the database (full mode, completed only)."""
     # Delete existing lb:* keys
-    cursor = "0"
+    cursor: int = 0
     deleted = 0
     while True:
         cursor, keys = await redis.scan(cursor, match="lb:*", count=200)
         if keys:
             await redis.delete(*keys)
             deleted += len(keys)
-        if cursor == "0":
+        if cursor == 0:
             break
 
     # Query best scores per user (full mode, completed)
