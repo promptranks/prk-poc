@@ -64,10 +64,14 @@ async def judge_output(
     """
     target_model = model or settings.llm_judge_model
 
-    rubric_text = "\n".join(
-        f"- {dim}: (weight {info['weight']}) {info['description']}"
-        for dim, info in scoring_rubric.items()
-    )
+    rubric_lines = []
+    for dim, info in scoring_rubric.items():
+        if isinstance(info, dict):
+            rubric_lines.append(f"- {dim}: (weight {info.get('weight', 0.2)}) {info.get('description', dim)}")
+        else:
+            # Flat format: {"accuracy": 0.2}
+            rubric_lines.append(f"- {dim}: (weight {info}) {dim}")
+    rubric_text = "\n".join(rubric_lines)
     criteria_text = "\n".join(f"- {c}" for c in success_criteria)
 
     judge_prompt = f"""You are an expert evaluator for AI prompt engineering assessments.

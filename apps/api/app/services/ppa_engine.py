@@ -207,6 +207,8 @@ def compute_ppa_score(judge_results: dict[str, Any], scoring_rubric: dict[str, A
         for dim, info in scoring_rubric.items():
             if isinstance(info, dict) and "weight" in info:
                 weights[dim] = info["weight"]
+            elif isinstance(info, (int, float)):
+                weights[dim] = float(info)
 
     total = 0.0
     for dim in ["accuracy", "completeness", "prompt_efficiency", "output_quality", "creativity"]:
