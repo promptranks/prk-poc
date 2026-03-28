@@ -1,9 +1,4 @@
-/**
- * Leaderboard page: public rankings with Matrix green theme.
- * Fetches GET /leaderboard with optional auth for personal rank highlighting.
- */
-
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -24,18 +19,22 @@ const LEVEL_LABELS: Record<number, string> = {
 }
 
 const LEVEL_COLORS: Record<number, string> = {
-  1: '#666666',
-  2: '#008f11',
-  3: '#00ff41',
-  4: '#6D5FFA',
+  1: '#64748B',
+  2: '#10B981',
+  3: '#3BB9FB',
+  4: '#8B5CF6',
   5: '#EC41FB',
 }
 
 const RANK_COLORS: Record<number, string> = {
-  1: '#FFD700',
-  2: '#C0C0C0',
-  3: '#CD7F32',
+  1: '#F59E0B',
+  2: '#CBD5E1',
+  3: '#F97316',
 }
+
+const GRADIENT_TEXT = 'linear-gradient(135deg, #A78BFA 0%, #60A5FA 50%, #EC41FB 100%)'
+const PRIMARY_GRADIENT = 'linear-gradient(135deg, #6D5FFA 0%, #8B5CF6 50%, #EC41FB 100%)'
+const PAGE_BG = 'linear-gradient(160deg, #07091A 0%, #0E0B2E 40%, #0A0714 100%)'
 
 interface LeaderboardEntry {
   rank: number
@@ -66,245 +65,478 @@ interface LeaderboardResponse {
 const styles = {
   page: {
     minHeight: '100vh',
-    background: '#000000',
-    color: '#c0ffc0',
-    fontFamily: "'Share Tech Mono', monospace",
+    background: PAGE_BG,
+    color: '#F1F5F9',
+    fontFamily: 'Inter, system-ui, sans-serif',
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
+    position: 'relative' as const,
+    overflow: 'hidden' as const,
   },
+  blob: (top: string, left: string, size: number, color: string) => ({
+    position: 'absolute' as const,
+    top,
+    left,
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    background: color,
+    filter: 'blur(80px)',
+    opacity: 0.42,
+    pointerEvents: 'none' as const,
+  }),
   container: {
-    maxWidth: 900,
+    position: 'relative' as const,
+    zIndex: 1,
+    maxWidth: 1200,
     width: '100%',
-    padding: '3rem 2rem',
+    padding: '2rem 1.5rem 4rem',
+  },
+  backLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    marginBottom: '1.5rem',
+    color: '#94A3B8',
+    fontSize: '0.95rem',
+    cursor: 'pointer',
+    textDecoration: 'none',
+  },
+  hero: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.2fr) minmax(320px, 0.8fr)',
+    gap: '1rem',
+    marginBottom: '1.25rem',
+  },
+  glassCard: {
+    background: 'rgba(17,20,40,0.72)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 22,
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+  },
+  heroPanel: {
+    padding: '1.75rem',
+  },
+  heroTag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.55rem',
+    padding: '0.5rem 0.85rem',
+    borderRadius: 999,
+    background: 'rgba(109,95,250,0.12)',
+    border: '1px solid rgba(109,95,250,0.26)',
+    color: '#C4B5FD',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    marginBottom: '1rem',
+  },
+  heroDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: '#10B981',
+    boxShadow: '0 0 14px rgba(16,185,129,0.7)',
   },
   heading: {
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '1.4rem',
-    color: '#00ff41',
-    textAlign: 'center' as const,
-    marginBottom: '0.5rem',
-    textShadow: '0 0 20px rgba(0,255,65,0.5)',
-    letterSpacing: '4px',
+    fontSize: 'clamp(2.4rem, 5vw, 4rem)',
+    lineHeight: 1.02,
+    fontWeight: 900,
+    margin: '0 0 1rem',
+    letterSpacing: '-0.04em',
+  },
+  gradientText: {
+    background: GRADIENT_TEXT,
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
   },
   subtitle: {
-    fontSize: '0.85rem',
-    color: '#008f11',
-    textAlign: 'center' as const,
-    marginBottom: '2rem',
+    fontSize: '1.08rem',
+    color: '#94A3B8',
+    lineHeight: 1.7,
+    margin: 0,
+    maxWidth: 720,
   },
+  statRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '0.85rem',
+    marginTop: '1.35rem',
+  },
+  statCard: {
+    padding: '1rem 1.05rem',
+    borderRadius: 18,
+    border: '1px solid rgba(255,255,255,0.07)',
+    background: 'rgba(255,255,255,0.03)',
+  },
+  statValue: {
+    fontSize: '1.15rem',
+    fontWeight: 800,
+    color: '#F8FAFC',
+    marginBottom: '0.35rem',
+  },
+  statLabel: {
+    fontSize: '0.85rem',
+    color: '#94A3B8',
+    lineHeight: 1.5,
+  },
+  sidePanel: {
+    padding: '1.5rem',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    justifyContent: 'space-between',
+    gap: '1rem',
+  },
+  sideTitle: {
+    fontSize: '0.8rem',
+    fontWeight: 800,
+    letterSpacing: '0.12em',
+    textTransform: 'uppercase' as const,
+    color: '#A78BFA',
+    margin: '0 0 0.8rem',
+  },
+  sideCopy: {
+    color: '#CBD5E1',
+    fontSize: '0.95rem',
+    lineHeight: 1.7,
+    margin: 0,
+  },
+  sideBadgeRow: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '0.6rem',
+  },
+  sideBadge: (color: 'purple' | 'cyan' | 'green') => ({
+    padding: '0.45rem 0.8rem',
+    borderRadius: 999,
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    color: color === 'purple' ? '#C4B5FD' : color === 'cyan' ? '#7DD3FC' : '#6EE7B7',
+    background: color === 'purple'
+      ? 'rgba(109,95,250,0.15)'
+      : color === 'cyan'
+      ? 'rgba(59,185,251,0.15)'
+      : 'rgba(16,185,129,0.15)',
+    border: color === 'purple'
+      ? '1px solid rgba(109,95,250,0.28)'
+      : color === 'cyan'
+      ? '1px solid rgba(59,185,251,0.28)'
+      : '1px solid rgba(16,185,129,0.28)',
+  }),
   tabRow: {
     display: 'flex',
-    gap: '0.5rem',
-    justifyContent: 'center',
+    gap: '0.7rem',
     flexWrap: 'wrap' as const,
-    marginBottom: '1.5rem',
+    margin: '1.3rem 0 1rem',
   },
   tab: (active: boolean) => ({
-    padding: '8px 16px',
-    border: active ? '1px solid #00ff41' : '1px solid rgba(0,255,65,0.2)',
-    borderRadius: 4,
-    background: active ? 'rgba(0,255,65,0.1)' : 'rgba(0,15,0,0.4)',
-    color: active ? '#00ff41' : '#008f11',
-    fontFamily: "'Share Tech Mono', monospace",
-    fontSize: '0.8rem',
+    padding: '0.75rem 1.15rem',
+    borderRadius: 999,
+    border: active ? '1px solid rgba(109,95,250,0.45)' : '1px solid rgba(255,255,255,0.08)',
+    background: active ? 'rgba(109,95,250,0.14)' : 'rgba(255,255,255,0.03)',
+    color: active ? '#E9D5FF' : '#94A3B8',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: '0.92rem',
+    fontWeight: 700,
     cursor: 'pointer',
-    transition: 'all 0.15s',
   }),
   myRankCard: {
-    padding: '1rem 1.5rem',
-    border: '1px solid #FFD700',
-    borderRadius: 8,
-    background: 'rgba(255,215,0,0.05)',
-    marginBottom: '1.5rem',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.5rem',
-    flexWrap: 'wrap' as const,
+    padding: '1.15rem 1.25rem',
+    borderRadius: 22,
+    border: '1px solid rgba(245,158,11,0.28)',
+    background: 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(236,65,251,0.08))',
+    marginBottom: '1rem',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '1rem',
+    boxShadow: '0 0 30px rgba(245,158,11,0.08)',
   },
   myRankLabel: {
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.55rem',
-    color: '#FFD700',
-    letterSpacing: '2px',
+    fontSize: '0.72rem',
+    color: '#FCD34D',
+    fontWeight: 800,
+    letterSpacing: '0.08em',
+    marginBottom: '0.35rem',
   },
   myRankValue: {
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '1.2rem',
-    color: '#FFD700',
-    textShadow: '0 0 10px rgba(255,215,0,0.4)',
+    fontSize: '1.1rem',
+    fontWeight: 900,
+    color: '#FFF7ED',
   },
   ctaBanner: {
-    padding: '1rem 1.5rem',
-    border: '1px solid rgba(0,255,65,0.15)',
-    borderRadius: 8,
-    background: 'rgba(0,15,0,0.5)',
-    marginBottom: '1.5rem',
+    padding: '1rem 1.2rem',
+    borderRadius: 20,
+    border: '1px solid rgba(109,95,250,0.22)',
+    background: 'rgba(17,20,40,0.72)',
+    backdropFilter: 'blur(20px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    flexWrap: 'wrap' as const,
     gap: '1rem',
+    flexWrap: 'wrap' as const,
+    marginBottom: '1rem',
   },
   ctaText: {
-    fontSize: '0.85rem',
-    color: '#008f11',
+    color: '#CBD5E1',
+    fontSize: '0.95rem',
   },
   ctaButton: {
-    padding: '10px 20px',
-    borderRadius: 4,
+    padding: '0.9rem 1.2rem',
+    borderRadius: 999,
     border: 'none',
-    background: 'linear-gradient(135deg, #6D5FFA 0%, #8B5CF6 40%, #EC41FB 100%)',
-    color: '#fff',
-    fontFamily: "'Share Tech Mono', monospace",
-    fontSize: '0.8rem',
+    background: PRIMARY_GRADIENT,
+    color: '#FFFFFF',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: '0.92rem',
+    fontWeight: 800,
     cursor: 'pointer',
+    boxShadow: '0 0 24px rgba(109,95,250,0.35)',
+  },
+  featuredPanel: {
+    padding: '1.2rem',
+    borderRadius: 28,
+    marginBottom: '1rem',
+  },
+  sectionLabelWrap: {
+    textAlign: 'center' as const,
+    marginBottom: '1rem',
+  },
+  sectionLabel: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.6rem',
+    fontSize: '0.76rem',
+    fontWeight: 800,
+    letterSpacing: '0.14em',
+    textTransform: 'uppercase' as const,
+    color: '#A78BFA',
+  },
+  sectionLine: {
+    width: 38,
+    height: 1,
+    background: 'rgba(109,95,250,0.35)',
+  },
+  topGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '1rem',
+    alignItems: 'stretch',
+  },
+  topCard: (rank: number) => ({
+    padding: '1.2rem 1rem',
+    minHeight: rank === 1 ? 270 : 240,
+    borderRadius: 26,
+    border: `1px solid ${rank === 1 ? 'rgba(245,158,11,0.28)' : rank === 2 ? 'rgba(203,213,225,0.2)' : 'rgba(249,115,22,0.2)'}`,
+    background: rank === 1
+      ? 'linear-gradient(180deg, rgba(245,158,11,0.14), rgba(109,95,250,0.10), rgba(17,20,40,0.78))'
+      : rank === 2
+      ? 'linear-gradient(180deg, rgba(148,163,184,0.12), rgba(59,185,251,0.08), rgba(17,20,40,0.78))'
+      : 'linear-gradient(180deg, rgba(249,115,22,0.12), rgba(236,65,251,0.08), rgba(17,20,40,0.78))',
+    boxShadow: rank === 1 ? '0 0 34px rgba(245,158,11,0.08)' : '0 0 28px rgba(109,95,250,0.08)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    justifyContent: 'space-between',
+    gap: '0.9rem',
+  }),
+  topRank: (rank: number) => ({
+    fontSize: '0.85rem',
+    fontWeight: 800,
+    letterSpacing: '0.08em',
+    color: RANK_COLORS[rank] || '#C4B5FD',
+  }),
+  avatar: (rank: number) => ({
+    width: rank === 1 ? 76 : 68,
+    height: rank === 1 ? 76 : 68,
+    borderRadius: '50%',
+    margin: '0 auto',
+    border: `2px solid ${RANK_COLORS[rank] || '#8B5CF6'}`,
+    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), rgba(109,95,250,0.35) 35%, rgba(59,185,251,0.24) 65%, rgba(17,20,40,0.82) 100%)',
+    boxShadow: '0 0 28px rgba(109,95,250,0.22)',
+  }),
+  topName: {
+    textAlign: 'center' as const,
+    fontSize: '1.05rem',
+    fontWeight: 800,
+    color: '#F8FAFC',
+    wordBreak: 'break-word' as const,
+  },
+  topMeta: {
+    textAlign: 'center' as const,
+    fontSize: '0.84rem',
+    color: '#94A3B8',
+  },
+  levelBadge: (level: number) => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.42rem 0.75rem',
+    borderRadius: 999,
+    border: `1px solid ${LEVEL_COLORS[level] || '#8B5CF6'}55`,
+    background: `${LEVEL_COLORS[level] || '#8B5CF6'}16`,
+    color: LEVEL_COLORS[level] || '#8B5CF6',
+    fontSize: '0.74rem',
+    fontWeight: 800,
+  }),
+  topScore: {
+    textAlign: 'center' as const,
+    fontSize: '1.6rem',
+    fontWeight: 900,
+    color: '#F8FAFC',
+  },
+  topScoreLabel: {
+    textAlign: 'center' as const,
+    color: '#94A3B8',
+    fontSize: '0.76rem',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.08em',
+  },
+  ladderList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.9rem',
+  },
+  ladderRow: (isCurrentUser: boolean, rank: number) => ({
+    display: 'grid',
+    gridTemplateColumns: '78px 58px minmax(0, 1.4fr) minmax(180px, 1fr) 132px 82px',
+    gap: '0.85rem',
+    alignItems: 'center',
+    padding: '1rem 1.1rem',
+    borderRadius: 22,
+    border: isCurrentUser
+      ? '1px solid rgba(245,158,11,0.28)'
+      : '1px solid rgba(255,255,255,0.07)',
+    background: isCurrentUser
+      ? 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(109,95,250,0.08), rgba(17,20,40,0.72))'
+      : 'rgba(17,20,40,0.72)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    boxShadow: rank <= 3 ? '0 0 24px rgba(109,95,250,0.08)' : '0 8px 32px rgba(0,0,0,0.32)',
+  }),
+  ladderRank: (rank: number) => ({
+    fontSize: '1rem',
+    fontWeight: 900,
+    color: RANK_COLORS[rank] || '#C4B5FD',
+  }),
+  ladderAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: '50%',
+    border: '1px solid rgba(109,95,250,0.32)',
+    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.25), rgba(109,95,250,0.32) 40%, rgba(59,185,251,0.2) 65%, rgba(17,20,40,0.88) 100%)',
+  },
+  nameWrap: {
+    minWidth: 0,
+  },
+  name: {
+    fontSize: '1rem',
+    fontWeight: 800,
+    color: '#F8FAFC',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
   },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    marginBottom: '1.5rem',
+  nameMeta: {
+    marginTop: '0.28rem',
+    color: '#94A3B8',
+    fontSize: '0.8rem',
   },
-  th: {
-    padding: '10px 12px',
-    borderBottom: '1px solid rgba(0,255,65,0.2)',
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.45rem',
-    color: '#008f11',
-    textAlign: 'left' as const,
-    letterSpacing: '1px',
-    textTransform: 'uppercase' as const,
-  },
-  tr: (isCurrentUser: boolean, rank: number) => ({
-    borderBottom: '1px solid rgba(0,255,65,0.08)',
-    background: isCurrentUser
-      ? 'rgba(255,215,0,0.05)'
-      : rank <= 3
-      ? 'rgba(0,255,65,0.03)'
-      : 'transparent',
-    outline: isCurrentUser ? '1px solid rgba(255,215,0,0.3)' : 'none',
-    transition: 'background 0.1s',
-  }),
-  td: {
-    padding: '10px 12px',
-    fontSize: '0.85rem',
-    color: '#c0ffc0',
-    verticalAlign: 'middle' as const,
-  },
-  rankCell: (rank: number) => ({
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.7rem',
-    color: RANK_COLORS[rank] || '#008f11',
-    textShadow: rank <= 3 ? `0 0 8px ${RANK_COLORS[rank]}60` : 'none',
-    minWidth: 36,
-  }),
-  levelBadge: (level: number) => ({
-    display: 'inline-block',
-    padding: '3px 8px',
-    borderRadius: 3,
-    border: `1px solid ${LEVEL_COLORS[level] || '#008f11'}`,
-    color: LEVEL_COLORS[level] || '#008f11',
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.4rem',
-    letterSpacing: '1px',
-    background: `${LEVEL_COLORS[level] || '#008f11'}15`,
-  }),
-  scoreBar: {
+  scoreTrack: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
+    gap: '0.7rem',
   },
   barBg: {
     flex: 1,
-    height: 6,
-    background: 'rgba(0,255,65,0.1)',
-    borderRadius: 3,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.06)',
     overflow: 'hidden' as const,
-    minWidth: 60,
+    minWidth: 90,
   },
   barFill: (score: number) => ({
     height: '100%',
-    width: `${score}%`,
+    width: `${Math.max(6, Math.min(100, score))}%`,
     background: score >= 85
-      ? 'linear-gradient(90deg, #6D5FFA, #EC41FB)'
+      ? PRIMARY_GRADIENT
       : score >= 70
-      ? '#00ff41'
-      : '#008f11',
-    borderRadius: 3,
+      ? 'linear-gradient(135deg, #3BB9FB 0%, #6D5FFA 100%)'
+      : 'linear-gradient(135deg, #10B981 0%, #3BB9FB 100%)',
+    borderRadius: 999,
   }),
   scoreNum: {
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.65rem',
-    color: '#00ff41',
-    minWidth: 28,
+    minWidth: 38,
     textAlign: 'right' as const,
+    color: '#F8FAFC',
+    fontSize: '0.88rem',
+    fontWeight: 800,
   },
   pecamMini: {
     display: 'flex',
-    gap: 3,
+    gap: 4,
     alignItems: 'flex-end',
+    justifyContent: 'flex-start',
   },
-  pecamBar: (val: number) => ({
-    width: 6,
-    height: Math.max(4, Math.round((val / 100) * 20)),
-    background: `rgba(0,255,65,${0.3 + (val / 100) * 0.7})`,
-    borderRadius: '2px 2px 0 0',
-  }),
-  pagination: {
-    display: 'flex',
-    gap: '0.5rem',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: '1rem',
-  },
-  pageBtn: (active: boolean) => ({
-    padding: '6px 12px',
-    border: active ? '1px solid #00ff41' : '1px solid rgba(0,255,65,0.2)',
-    borderRadius: 3,
-    background: active ? 'rgba(0,255,65,0.1)' : 'transparent',
-    color: active ? '#00ff41' : '#008f11',
-    fontFamily: "'Share Tech Mono', monospace",
-    fontSize: '0.8rem',
-    cursor: 'pointer',
+  pecamBar: (val: number, index: number) => ({
+    width: 8,
+    height: Math.max(8, Math.round((val / 100) * 24)),
+    background: index % 3 === 0
+      ? 'linear-gradient(180deg, #6D5FFA, #EC41FB)'
+      : index % 3 === 1
+      ? 'linear-gradient(180deg, #3BB9FB, #6D5FFA)'
+      : 'linear-gradient(180deg, #10B981, #3BB9FB)',
+    opacity: 0.45 + val / 180,
+    borderRadius: '4px 4px 0 0',
   }),
   loading: {
     textAlign: 'center' as const,
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize: '0.7rem',
-    color: '#00ff41',
+    color: '#E9D5FF',
+    fontSize: '0.95rem',
+    fontWeight: 700,
     padding: '4rem',
-    letterSpacing: '2px',
   },
   error: {
     textAlign: 'center' as const,
-    color: '#ff4444',
-    fontSize: '0.85rem',
+    color: '#FCA5A5',
+    fontSize: '0.95rem',
     padding: '2rem',
   },
   empty: {
     textAlign: 'center' as const,
-    color: '#008f11',
-    fontSize: '0.85rem',
+    color: '#CBD5E1',
+    fontSize: '0.95rem',
     padding: '3rem',
-    fontFamily: "'Press Start 2P', monospace",
-    fontSize2: '0.6rem',
   },
+  pagination: {
+    display: 'flex',
+    gap: '0.6rem',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: '1.2rem',
+    flexWrap: 'wrap' as const,
+  },
+  pageBtn: (active: boolean) => ({
+    padding: '0.7rem 0.95rem',
+    border: active ? '1px solid rgba(109,95,250,0.45)' : '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 14,
+    background: active ? 'rgba(109,95,250,0.14)' : 'rgba(255,255,255,0.03)',
+    color: active ? '#E9D5FF' : '#94A3B8',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: '0.9rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+  }),
   footer: {
     marginTop: '2rem',
-    paddingTop: '1.5rem',
-    borderTop: '1px solid rgba(0,255,65,0.1)',
-    fontSize: '0.75rem',
-    color: '#008f11',
+    paddingTop: '1.4rem',
+    borderTop: '1px solid rgba(255,255,255,0.07)',
+    color: '#64748B',
+    fontSize: '0.82rem',
     textAlign: 'center' as const,
-  },
-  backLink: {
-    display: 'inline-block',
-    marginBottom: '1.5rem',
-    color: '#008f11',
-    fontSize: '0.8rem',
-    cursor: 'pointer',
-    textDecoration: 'none',
   },
 }
 
@@ -334,7 +566,7 @@ export default function Leaderboard() {
       setError('')
       try {
         const headers: Record<string, string> = {}
-        if (token) headers['Authorization'] = `Bearer ${token}`
+        if (token) headers.Authorization = `Bearer ${token}`
 
         const res = await fetch(
           `${API_BASE}/leaderboard/?period=${period}&page=${page}&page_size=50`,
@@ -352,13 +584,23 @@ export default function Leaderboard() {
         setLoading(false)
       }
     }
+
     fetchData()
   }, [period, page, token])
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / 50)) : 1
+  const topThree = useMemo(() => (page === 1 ? (data?.entries ?? []).slice(0, 3) : []), [data, page])
+  const ladderEntries = useMemo(() => {
+    if (!data) return []
+    return page === 1 ? data.entries.slice(3) : data.entries
+  }, [data, page])
 
   return (
     <div style={styles.page}>
+      <div style={styles.blob('-8%', '68%', 520, 'radial-gradient(circle, rgba(109,95,250,0.55) 0%, rgba(109,95,250,0) 70%)')} />
+      <div style={styles.blob('48%', '-8%', 420, 'radial-gradient(circle, rgba(236,65,251,0.35) 0%, rgba(236,65,251,0) 70%)')} />
+      <div style={styles.blob('62%', '22%', 360, 'radial-gradient(circle, rgba(59,185,251,0.28) 0%, rgba(59,185,251,0) 70%)')} />
+
       <div style={styles.container}>
         <div
           style={styles.backLink}
@@ -367,26 +609,71 @@ export default function Leaderboard() {
           tabIndex={0}
           onKeyDown={(e) => e.key === 'Enter' && navigate('/')}
         >
-          &lt; Back
+          <span>←</span>
+          <span>Back</span>
         </div>
 
-        <h1 style={styles.heading}>LEADERBOARD</h1>
-        <p style={styles.subtitle}>Top prompt engineers ranked by Full Assessment score</p>
+        <div style={styles.hero}>
+          <div style={{ ...styles.glassCard, ...styles.heroPanel }}>
+            <div style={styles.heroTag}>
+              <span style={styles.heroDot} />
+              <span>Global Prompt Engineering Ladder</span>
+            </div>
+            <h1 style={styles.heading}>
+              <span>Climb the </span>
+              <span style={styles.gradientText}>Leaderboard.</span>
+            </h1>
+            <p style={styles.subtitle}>
+              Full-assessment operators are ranked by real PromptRanks scores. Compare your level, track your
+              PECAM spread, and push toward the top tiers.
+            </p>
 
-        {/* Period tabs */}
+            <div style={styles.statRow}>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>{data?.total ?? '--'}</div>
+                <div style={styles.statLabel}>Ranked operators</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>{period.toUpperCase()}</div>
+                <div style={styles.statLabel}>Leaderboard window</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>PECAM</div>
+                <div style={styles.statLabel}>Score bars + pillar spread in every row</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ ...styles.glassCard, ...styles.sidePanel }}>
+            <div>
+              <h2 style={styles.sideTitle}>How ranking works</h2>
+              <p style={styles.sideCopy}>
+                Only Full Assessment runs appear here. Sign in to see your personal rank callout when you qualify for the public ladder.
+              </p>
+            </div>
+            <div style={styles.sideBadgeRow}>
+              <span style={styles.sideBadge('purple')}>Premium leaderboard UI</span>
+              <span style={styles.sideBadge('cyan')}>Live score data</span>
+              <span style={styles.sideBadge('green')}>Badge-linked profiles</span>
+            </div>
+          </div>
+        </div>
+
         <div style={styles.tabRow}>
           {PERIODS.map((p) => (
             <button
               key={p.value}
               style={styles.tab(period === p.value)}
-              onClick={() => { setPeriod(p.value); setPage(1) }}
+              onClick={() => {
+                setPeriod(p.value)
+                setPage(1)
+              }}
             >
               {p.label}
             </button>
           ))}
         </div>
 
-        {/* My rank card */}
         {data?.my_rank && (
           <div style={styles.myRankCard}>
             <div>
@@ -395,97 +682,101 @@ export default function Leaderboard() {
             </div>
             <div>
               <div style={styles.myRankLabel}>YOUR SCORE</div>
-              <div style={styles.myRankValue}>{data.my_rank.score}</div>
+              <div style={styles.myRankValue}>{Math.round(data.my_rank.score)}</div>
+            </div>
+            <div>
+              <div style={styles.myRankLabel}>STATUS</div>
+              <div style={styles.myRankValue}>ON LADDER</div>
             </div>
           </div>
         )}
 
-        {/* CTA for unranked users */}
         {data && !data.my_rank && !token && (
           <div style={styles.ctaBanner}>
-            <span style={styles.ctaText}>Take the Full Assessment to appear on the leaderboard</span>
+            <span style={styles.ctaText}>Take the Full Assessment to appear on the leaderboard.</span>
             <button style={styles.ctaButton} onClick={() => navigate('/')}>
               Start Assessment
             </button>
           </div>
         )}
 
-        {loading && (
-          <div style={styles.loading}>[ LOADING... ]</div>
-        )}
-
-        {error && !loading && (
-          <div style={styles.error}>{error}</div>
-        )}
-
+        {loading && <div style={styles.loading}>Loading leaderboard…</div>}
+        {error && !loading && <div style={styles.error}>{error}</div>}
         {!loading && !error && data && data.entries.length === 0 && (
-          <div style={{ ...styles.empty, fontSize: '0.6rem' }}>
-            No entries yet. Be the first to complete a Full Assessment.
-          </div>
+          <div style={styles.empty}>No entries yet. Be the first to complete a Full Assessment.</div>
         )}
 
         {!loading && !error && data && data.entries.length > 0 && (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>#</th>
-                <th style={styles.th}>Name</th>
-                <th style={styles.th}>Level</th>
-                <th style={styles.th}>Score</th>
-                <th style={styles.th}>PECAM</th>
-                <th style={{ ...styles.th, display: 'none' as const }}>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.entries.map((entry) => {
-                const isMe = token
-                  ? data.my_rank?.rank === entry.rank
-                  : false
+          <>
+            {topThree.length > 0 && (
+              <div style={{ ...styles.glassCard, ...styles.featuredPanel }}>
+                <div style={styles.sectionLabelWrap}>
+                  <div style={styles.sectionLabel}>
+                    <span style={styles.sectionLine} />
+                    <span>Featured Operators</span>
+                    <span style={styles.sectionLine} />
+                  </div>
+                </div>
+
+                <div style={styles.topGrid}>
+                  {topThree.map((entry) => (
+                    <div key={entry.user_id} style={styles.topCard(entry.rank)}>
+                      <div style={styles.topRank(entry.rank)}>#{entry.rank}</div>
+                      <div style={styles.avatar(entry.rank)} />
+                      <div style={styles.topName}>{entry.display_name}</div>
+                      <div style={styles.topMeta}>{entry.level_name}</div>
+                      <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <span style={styles.levelBadge(entry.level)}>
+                          L{entry.level} {LEVEL_LABELS[entry.level] || ''}
+                        </span>
+                      </div>
+                      <div>
+                        <div style={styles.topScore}>{Math.round(entry.score)}</div>
+                        <div style={styles.topScoreLabel}>Overall Score</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={styles.ladderList}>
+              {ladderEntries.map((entry) => {
+                const isMe = token ? data.my_rank?.rank === entry.rank : false
                 const pillarVals = getPillarCombined(entry.pillar_scores)
-                const rankColor = RANK_COLORS[entry.rank]
 
                 return (
-                  <tr
-                    key={entry.user_id}
-                    style={styles.tr(isMe, entry.rank)}
-                  >
-                    <td style={{ ...styles.td, ...styles.rankCell(entry.rank) }}>
-                      {entry.rank <= 3 ? ['', '01', '02', '03'][entry.rank] : entry.rank}
-                    </td>
-                    <td style={styles.td}>
-                      <span style={{ color: isMe ? '#FFD700' : rankColor || '#c0ffc0' }}>
+                  <div key={entry.user_id} style={styles.ladderRow(isMe, entry.rank)}>
+                    <div style={styles.ladderRank(entry.rank)}>{entry.rank <= 3 ? `#0${entry.rank}` : `#${entry.rank}`}</div>
+                    <div style={styles.ladderAvatar} />
+                    <div style={styles.nameWrap}>
+                      <div style={styles.name}>
                         {entry.display_name}
-                        {isMe && ' (you)'}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <span style={styles.levelBadge(entry.level)}>
-                        L{entry.level} {LEVEL_LABELS[entry.level] || ''}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.scoreBar}>
-                        <div style={styles.barBg}>
-                          <div style={styles.barFill(entry.score)} />
-                        </div>
-                        <span style={styles.scoreNum}>{Math.round(entry.score)}</span>
+                        {isMe ? ' (you)' : ''}
                       </div>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.pecamMini}>
-                        {pillarVals.map((v, i) => (
-                          <div key={i} style={styles.pecamBar(v)} title={`${['P','E','C','A','M'][i]}: ${Math.round(v)}`} />
-                        ))}
+                      <div style={styles.nameMeta}>{new Date(entry.achieved_at).toLocaleDateString()}</div>
+                    </div>
+                    <div style={styles.scoreTrack}>
+                      <div style={styles.barBg}>
+                        <div style={styles.barFill(entry.score)} />
                       </div>
-                    </td>
-                  </tr>
+                      <span style={styles.scoreNum}>{Math.round(entry.score)}</span>
+                    </div>
+                    <span style={styles.levelBadge(entry.level)}>
+                      L{entry.level} {LEVEL_LABELS[entry.level] || ''}
+                    </span>
+                    <div style={styles.pecamMini}>
+                      {pillarVals.map((v, i) => (
+                        <div key={i} style={styles.pecamBar(v, i)} title={`${['P', 'E', 'C', 'A', 'M'][i]}: ${Math.round(v)}`} />
+                      ))}
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div style={styles.pagination}>
             <button
@@ -493,7 +784,7 @@ export default function Leaderboard() {
               disabled={page === 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
-              &lt; Prev
+              ← Prev
             </button>
             {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
               const p = i + 1
@@ -512,14 +803,12 @@ export default function Leaderboard() {
               disabled={page === totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >
-              Next &gt;
+              Next →
             </button>
           </div>
         )}
 
-        <div style={styles.footer}>
-          Full Assessment scores only &mdash; PromptRanks PECAM Framework
-        </div>
+        <div style={styles.footer}>Full Assessment scores only — PromptRanks PECAM Framework</div>
       </div>
     </div>
   )
